@@ -10,7 +10,7 @@
 <a class="skip" href="#board">Skip to the board</a>
 <header class="hero">
   <div class="hero-in">
-    <p class="kicker">Token launch radar &middot; model radar-2</p>
+    <p class="kicker">Token launch radar &middot; model radar-3</p>
     <h1>Token Radar</h1>
     <p class="lede">Every protocol DefiLlama tracks that still records no token, ranked by what
     its launch would be worth if its record stayed as it is &mdash; and what to do to farm it.</p>
@@ -21,12 +21,42 @@
 <main>
   <section class="card model" aria-labelledby="model-h">
     <h2 id="model-h">How the implied value is worked out</h2>
-    <p class="formula">implied value = TVL &times; 0.30 &times; growth &times; maturity &times; breadth</p>
+    <p class="formula">implied value = TVL &times; 0.30 &times; growth &times; maturity &times; breadth &times; category</p>
     <ul class="model-list" id="model-list"></ul>
-    <p class="note">Implied value is this entry&rsquo;s own claim from the snapshot&rsquo;s figures. It is
+    <p class="note">A protocol over two years old and still shrinking more than 10% in 7 days
+    takes a further &times;0.90 &mdash; an old protocol bleeding TVL has likely missed its
+    launch window. Implied value is this entry&rsquo;s own claim from the snapshot&rsquo;s figures. It is
     not a prediction that a token will launch, or when. A protocol is said to <em>record no
     token</em>, never that it has none: DefiLlama&rsquo;s record is not proof, and a protocol on
     the list may still carry a token its record does not name.</p>
+  </section>
+
+  <section class="card" aria-labelledby="spread-h">
+    <h2 id="spread-h">How the value is spread</h2>
+    <p class="note">Implied value across the ranked board, in six buckets. A launch radar
+    is top-heavy by nature: a few protocols are worth most of the board.</p>
+    <div class="dist" id="dist"></div>
+    <p class="note" id="concentration"></p>
+  </section>
+
+  <section class="card" aria-labelledby="cats-h">
+    <h2 id="cats-h">Value by category</h2>
+    <p class="note">Total implied value and row count per category, strongest first.
+    The board is not one category&rsquo;s story: lending, exchanges, curators, RWA and
+    yield all sit near the top.</p>
+    <div class="table-wrap">
+      <table id="cats">
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th class="num">Protocols</th>
+            <th class="num">Total implied value</th>
+            <th class="num">Share</th>
+          </tr>
+        </thead>
+        <tbody id="cat-rows"></tbody>
+      </table>
+    </div>
   </section>
 
   <nav class="tabs" aria-label="Views">

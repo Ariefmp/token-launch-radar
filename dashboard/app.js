@@ -71,9 +71,10 @@
   var m = R.model;
   $('model-list').innerHTML =
     '<li><b>Base:</b> TVL &times; ' + m.base_multiple + ' &mdash; the launch multiple applied to the value already locked in the protocol.</li>' +
-    '<li><b>Growth:</b> 7-day TVL change, clamped to ' + m.growth_floor + '%&hellip;' + m.growth_cap + '%, weighted ' + m.growth_weight + ' &mdash; a protocol still compounding is worth more than one shrinking.</li>' +
-    '<li><b>Maturity:</b> ' + m.maturity_floor + ' + ' + m.maturity_range + ' &times; min(age, ' + m.maturity_days + ' days) / ' + m.maturity_days + ' &mdash; running longer with no token raises the value, up to ' + (m.maturity_floor + m.maturity_range).toFixed(2) + '&times;.</li>' +
+    '<li><b>Growth:</b> 7-day TVL change, clamped to ' + m.growth_floor + '%&hellip;' + m.growth_cap + '%, raised to the power ' + m.growth_exponent + ' &mdash; gentle near zero, sharp at the extremes: a protocol compounding hard is worth much more, one collapsing much less.</li>' +
+    '<li><b>Maturity:</b> ' + m.maturity_floor + ' + ' + m.maturity_range + ' &times; the square root of min(age, ' + m.maturity_days + ' days) / ' + m.maturity_days + ' &mdash; the first year with no token is the strongest signal; later years add less, up to ' + (m.maturity_floor + m.maturity_range).toFixed(2) + '&times;.</li>' +
     '<li><b>Breadth:</b> 1 + ' + m.breadth_per_chain + ' per extra chain, up to ' + m.breadth_max_chains + ' extra &mdash; a protocol live on more chains has more surface to launch from.</li>' +
+    '<li><b>Category:</b> &times;' + m.category_native + ' for token-native models (lending, exchanges, derivatives, yield, RWA and the like), &times;' + m.category_unlikely + ' for models that rarely carry a token (chains, stablecoin issuers, token lockers, BTC wrappers), &times;1.00 for the rest.</li>' +
     '<li><b>Unknown age</b> counts as ' + m.unknown_age_days + ' days; unknown 7-day change counts as 0%.</li>';
 
   // ---- filters ----
@@ -139,7 +140,7 @@
         (watchSet[r.slug] ? ' <span class="badge watch">watchlist</span>' : '') + '</span></td>' +
         '<td>' + esc(r.category || '--') + '</td>' +
         '<td>' + (r.chains || []).slice(0, 2).map(function (c) { return '<span class="badge">' + esc(c) + '</span>'; }).join('') +
-        ((r.chains || []).length > 3 ? '<span class="badge">+' + ((r.chains || []).length - 3) + '</span>' : '') + '</td>' +
+        ((r.chains || []).length > 2 ? '<span class="badge">+' + ((r.chains || []).length - 2) + '</span>' : '') + '</td>' +
         '<td class="num">' + money(r.tvl_usd) + '</td>' +
         '<td class="num ' + pctClass(r.change_7d) + '">' + pct(r.change_7d) + '</td>' +
         '<td class="num">' + ageText(r.age_days) + '</td>' +
@@ -169,6 +170,60 @@
     $('live-rows').innerHTML = html;
   }
 
+  // ---- value spread and categories ----
+  function renderSpread() {
+    var buckets = [
+      { label: 'under $1M', test: function (v) { return v < 1e6; } },
+      { label: '$1M – $10M', test: function (v) { return v >= 1e6 && v < 1e7; } },
+      { label: '$10M – $50M', test: function (v) { return v >= 1e7 && v < 5e7; } },
+      { label: '$50M – $100M', test: function (v) { return v >= 5e7 && v < 1e8; } },
+      { label: '$100M – $500M', test: function (v) { return v >= 1e8 && v < 5e8; } },
+      { label: 'over $500M', test: function (v) { return v >= 5e8; } },
+    ];
+    var counts = buckets.map(function () { return 0; });
+    var total = 0;
+    R.rows.forEach(function (r) {
+      total += r.implied_value_usd;
+      for (var i = 0; i < buckets.length; i++) {
+        if (buckets[i].test(r.implied_value_usd)) { counts[i]++; break; }
+      }
+    });
+    var max = Math.max.apply(null, counts.concat([1]));
+    var html = '';
+    buckets.forEach(function (b, i) {
+      var w = Math.round((counts[i] / max) * 100);
+      html += '<div class="dist-row"><span class="dist-label">' + b.label + '</span>' +
+        '<span class="dist-bar"><span style="width:' + w + '%"></span></span>' +
+        '<span class="dist-count">' + counts[i] + '</span></div>';
+    });
+    $('dist').innerHTML = html;
+    var top10 = R.rows.slice(0, 10).reduce(function (n, r) { return n + r.implied_value_usd; }, 0);
+    var median = R.rows[Math.floor(R.rows.length / 2)].implied_value_usd;
+    $('concentration').textContent = 'The top 10 protocols hold ' +
+      Math.round((top10 / total) * 100) + '% of the board\u2019s ' + money(total) +
+      ' of total implied value; the median protocol is worth ' + money(median) + '.';
+  }
+
+  function renderCats() {
+    var byCat = {};
+    R.rows.forEach(function (r) {
+      var c = r.category || 'No category';
+      if (!byCat[c]) byCat[c] = { n: 0, total: 0 };
+      byCat[c].n++;
+      byCat[c].total += r.implied_value_usd;
+    });
+    var list = Object.keys(byCat).map(function (c) {
+      return { name: c, n: byCat[c].n, total: byCat[c].total };
+    }).sort(function (a, b) { return b.total - a.total; }).slice(0, 10);
+    var total = R.rows.reduce(function (n, r) { return n + r.implied_value_usd; }, 0);
+    $('cat-rows').innerHTML = list.map(function (c) {
+      return '<tr><td><strong>' + esc(c.name) + '</strong></td>' +
+        '<td class="num">' + c.n + '</td>' +
+        '<td class="num"><strong>' + money(c.total) + '</strong></td>' +
+        '<td class="num">' + (100 * c.total / total).toFixed(1) + '%</td></tr>';
+    }).join('');
+  }
+
   // ---- detail view ----
   function splitStep(s) {
     var i = s.indexOf(' Cost: ');
@@ -178,6 +233,35 @@
     var j = rest.indexOf('. Time: ');
     if (j < 0) return { action: action, cost: rest, time: '' };
     return { action: action, cost: rest.slice(0, j), time: rest.slice(j + 8).replace(/\.$/, '') };
+  }
+
+  function riskFlags(r) {
+    var flags = [];
+    if (r.change_7d !== null && r.change_7d < -20) {
+      flags.push('TVL fell ' + Math.abs(r.change_7d).toFixed(1) + '% in 7 days — the protocol is shrinking fast.');
+    } else if (r.change_7d !== null && r.change_7d < 0) {
+      flags.push('TVL fell ' + Math.abs(r.change_7d).toFixed(1) + '% in 7 days.');
+    }
+    if (r.age_days === null) {
+      flags.push('Age unknown — the snapshot carries no listing date, so maturity is estimated at ' + R.model.unknown_age_days + ' days.');
+    }
+    if ((r.chains || []).length <= 1) {
+      flags.push('Live on a single chain — a launch has only one chain to land on.');
+    }
+    if (r.model.category_group === 'unlikely') {
+      flags.push('Category (' + (r.category || 'none') + ') rarely carries a token.');
+    }
+    if (r.model.stale_multiplier < 1) {
+      flags.push('Stale: over two years old and still shrinking — the launch window may have passed.');
+    }
+    return flags;
+  }
+
+  function peers(r) {
+    var same = R.rows.filter(function (x) { return x.category === r.category && x.slug !== r.slug; });
+    var above = same.filter(function (x) { return x.rank < r.rank; }).slice(-2);
+    var below = same.filter(function (x) { return x.rank > r.rank; }).slice(0, 2);
+    return above.concat(below);
   }
 
   function renderDetail(slug) {
@@ -195,6 +279,11 @@
       steps += '<li>' + esc(p.action) +
         '<span class="cost">Cost: ' + esc(p.cost) + ' &middot; Time: ' + esc(p.time) + '</span></li>';
     });
+    var flags = riskFlags(r);
+    var near = peers(r);
+    var staleRow = md.stale_multiplier < 1
+      ? '<tr><td>Stale: over ' + R.model.stale_age_days + ' days old and shrinking ' + (md.growth_pct > 0 ? '+' : '') + md.growth_pct + '%</td><td>&times;' + md.stale_multiplier + '</td></tr>'
+      : '';
     $('detail-body').innerHTML =
       '<h3>' + esc(r.name) + ' <span class="badge">rank #' + r.rank + '</span>' +
       (watchSet[r.slug] ? ' <span class="badge watch">watchlist</span>' : '') + '</h3>' +
@@ -209,8 +298,20 @@
       '<tr><td>Growth: ' + (md.growth_pct > 0 ? '+' : '') + md.growth_pct + '% over 7 days</td><td>&times;' + md.growth_multiplier + '</td></tr>' +
       '<tr><td>Maturity: ' + (md.age_days === null ? 'unknown age' : md.age_days + ' days old') + '</td><td>&times;' + md.maturity_multiplier + '</td></tr>' +
       '<tr><td>Breadth: ' + (r.chains || []).length + ' chain' + ((r.chains || []).length === 1 ? '' : 's') + '</td><td>&times;' + md.breadth_multiplier + '</td></tr>' +
+      '<tr><td>Category: ' + esc(r.category || 'no category') + ' (' + md.category_group + ')</td><td>&times;' + md.category_multiplier + '</td></tr>' +
+      staleRow +
       '<tr class="total"><td>Implied value</td><td>' + money(r.implied_value_usd) + '</td></tr>' +
       '</tbody></table>' +
+      '<h4>What could be wrong</h4>' +
+      (flags.length
+        ? '<ul class="flags">' + flags.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul>'
+        : '<p class="note">No red flags in the snapshot: TVL is not collapsing, the age is known, and the category carries tokens.</p>') +
+      '<h4>Nearest peers in ' + esc(r.category || 'this category') + '</h4>' +
+      (near.length
+        ? '<ul class="peers">' + near.map(function (p) {
+            return '<li><a href="#" data-slug="' + esc(p.slug) + '">#' + p.rank + ' ' + esc(p.name) + '</a> &mdash; ' + money(p.implied_value_usd) + '</li>';
+          }).join('') + '</ul>'
+        : '<p class="note">No other ranked protocol shares this category.</p>') +
       '<h4>Farm plan &mdash; six steps</h4>' +
       '<ol class="steps">' + steps + '</ol>' +
       '<p class="note">Costs are in US dollars of capital and gas at the time of the snapshot; ' +
@@ -258,6 +359,15 @@
     renderBoard();
     try { history.replaceState(null, '', '#board'); } catch (err) { /* no history */ }
   });
+  $('detail-body').addEventListener('click', function (e) {
+    var a = e.target.closest('a[data-slug]');
+    if (!a) return;
+    e.preventDefault();
+    renderDetail(a.getAttribute('data-slug'));
+    renderBoard();
+    $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    try { history.replaceState(null, '', '#detail=' + a.getAttribute('data-slug')); } catch (err) { /* no history */ }
+  });
 
   // ---- deep links: #detail=<slug>, #q=<text>, #tab=live, #watchlist=1 ----
   function fromHash() {
@@ -276,6 +386,8 @@
 
   renderBoard();
   renderLive();
+  renderSpread();
+  renderCats();
   fromHash();
   renderBoard();
   if (state.selected) renderDetail(state.selected);

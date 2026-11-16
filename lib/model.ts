@@ -1,4 +1,4 @@
-// Token Radar model (radar-2): one sealed snapshot in, one ranked board out.
+// Token Radar model (radar-3): one sealed snapshot in, one ranked board out.
 //
 // The board ranks every pre-token protocol the snapshot can rank: the whole
 // watchlist (the floor, never the ceiling) plus every other pre-token protocol
@@ -11,11 +11,23 @@
 //
 //   base      = tvl_usd x 0.30                      (FDV/TVL multiple)
 //   growth    = clamp(change_7d, -80, 200) per cent
-//   growth x  = 1 + (growth / 100) x 0.6
+//   growth x  = (1 + growth / 100) ^ 0.8            (power curve: gentle near
+//               zero, sharp at the extremes — a protocol compounding hard is
+//               worth much more, one collapsing is worth much less)
 //   age       = days from listed_at to as_of (unknown: 365)
-//   maturity x= 0.5 + 0.5 x min(age, 1460) / 1460
+//   maturity x= 0.4 + 0.6 x sqrt(min(age, 1460) / 1460)
+//               (concave: the first year with no token is the strongest
+//               signal; later years add less)
 //   breadth x = 1 + 0.04 x min(chains - 1, 6)
-//   implied   = max(1, round(base x growth x maturity x breadth))
+//   category x= 1.12 for token-native business models (lending, exchanges,
+//               derivatives, yield, RWA, prediction markets and the like),
+//               0.88 for models that rarely carry a token (chains, stablecoin
+//               issuers, token lockers, BTC wrappers and the like), 1.00 else
+//   stale x   = 0.90 when the protocol is over two years old AND still
+//               shrinking more than 10% in 7 days — an old protocol bleeding
+//               TVL has likely missed its launch window; 1.00 otherwise
+//   implied   = max(1, round(base x growth x maturity x breadth x category
+//               x stale))
 //
 // No protocol name is ever special-cased: the same function scores every row.
 // A protocol is said to record no token, never that it has none: DefiLlama's
@@ -48,32 +60,42 @@ export interface Snapshot {
 /** The model's constants, as the dashboard states them. */
 export interface ModelConstants {
   base_multiple: number;
-  growth_weight: number;
   growth_floor: number;
   growth_cap: number;
+  growth_exponent: number;
   maturity_floor: number;
   maturity_range: number;
   maturity_days: number;
   unknown_age_days: number;
   breadth_per_chain: number;
   breadth_max_chains: number;
+  category_native: number;
+  category_unlikely: number;
+  stale_age_days: number;
+  stale_growth_pct: number;
+  stale_multiplier: number;
 }
 
 export const MODEL: ModelConstants = {
   base_multiple: 0.3,
-  growth_weight: 0.6,
   growth_floor: -80,
   growth_cap: 200,
-  maturity_floor: 0.5,
-  maturity_range: 0.5,
+  growth_exponent: 0.8,
+  maturity_floor: 0.4,
+  maturity_range: 0.6,
   maturity_days: 1460,
   unknown_age_days: 365,
   breadth_per_chain: 0.04,
   breadth_max_chains: 6,
+  category_native: 1.12,
+  category_unlikely: 0.88,
+  stale_age_days: 730,
+  stale_growth_pct: -10,
+  stale_multiplier: 0.9,
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 
 /** How many live-token protocols the Live tab carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -107,6 +129,9 @@ export interface BoardRow {
     growth_multiplier: number;
     maturity_multiplier: number;
     breadth_multiplier: number;
+    category_multiplier: number;
+    category_group: 'native' | 'neutral' | 'unlikely';
+    stale_multiplier: number;
     age_days: number | null;
   };
   farm_steps: string[];
@@ -167,25 +192,116 @@ export function ageDays(asOf: string, listedAt: string | null): number | null {
   return Math.max(0, Math.floor((a - b) / DAY_MS));
 }
 
-/** The four multipliers and the implied value one protocol gets. */
+/**
+ * Categories whose business model is token-native: the protocol's own token is
+ * the product's natural funding and governance vehicle, so a launch is more
+ * likely and worth more.
+ */
+const CATEGORY_NATIVE = new Set([
+  'AI Agents',
+  'Basis Trading',
+  'CDP',
+  'CDP Manager',
+  'Collateral Management',
+  'Collateral Markets',
+  'Decentralized AI',
+  'Derivatives',
+  'Dexs',
+  'Farm',
+  'Interest Rate Derivatives',
+  'Launchpad',
+  'Lending',
+  'Leveraged Farming',
+  'Liquidity Manager',
+  'Onchain Capital Allocator',
+  'Options',
+  'Options Vault',
+  'Prediction Market',
+  'Restaking',
+  'Risk Curators',
+  'RWA',
+  'Staking Pool',
+  'Synthetics',
+  'Uncollateralized Lending',
+  'Yield',
+  'Yield Aggregator',
+]);
+
+/**
+ * Categories whose business model rarely carries a token: the product is the
+ * chain, the stablecoin or the wrapper itself, so a launch is less likely and
+ * worth less when it comes.
+ */
+const CATEGORY_UNLIKELY = new Set([
+  'Algo-Stables',
+  'Anchor BTC',
+  'Chain',
+  'DOR',
+  'Decentralized BTC',
+  'Dual-Token Stablecoin',
+  'Governance Incentives',
+  'NFT Marketplace',
+  'Payments',
+  'Privacy',
+  'Reserve Currency',
+  'Stablecoin Issuer',
+  'Stablecoin Wrapper',
+  'Token Locker',
+]);
+
+/** Which of the three category groups a protocol's category falls in. */
+export function categoryGroup(category: string | null): 'native' | 'neutral' | 'unlikely' {
+  if (category !== null && CATEGORY_NATIVE.has(category)) return 'native';
+  if (category !== null && CATEGORY_UNLIKELY.has(category)) return 'unlikely';
+  return 'neutral';
+}
+
+/** The category multiplier for a group, from the model's constants. */
+function categoryMultiplier(group: 'native' | 'neutral' | 'unlikely', model: ModelConstants): number {
+  if (group === 'native') return model.category_native;
+  if (group === 'unlikely') return model.category_unlikely;
+  return 1;
+}
+
+/** The six multipliers and the implied value one protocol gets. */
 export function impliedValue(
   protocol: SnapshotProtocol,
   asOf: string,
   model: ModelConstants,
-): { implied: number; base: number; growthPct: number; growthMult: number; maturityMult: number; breadthMult: number; age: number | null } {
+): {
+  implied: number;
+  base: number;
+  growthPct: number;
+  growthMult: number;
+  maturityMult: number;
+  breadthMult: number;
+  categoryMult: number;
+  categoryGroup: 'native' | 'neutral' | 'unlikely';
+  staleMult: number;
+  age: number | null;
+} {
   const age = ageDays(asOf, protocol.listed_at);
   const rawGrowth = finite(protocol.change_7d, 0);
   const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
-  const growthMult = 1 + (growthPct / 100) * model.growth_weight;
+  const growthMult = Math.pow(1 + growthPct / 100, model.growth_exponent);
   const ageForModel = age ?? model.unknown_age_days;
   const maturityMult =
     model.maturity_floor +
-    (Math.min(Math.max(ageForModel, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
+    Math.sqrt(Math.min(Math.max(ageForModel, 0), model.maturity_days) / model.maturity_days) *
+      model.maturity_range;
   const extraChains = Math.max(0, Math.min(protocol.chains.length - 1, model.breadth_max_chains));
   const breadthMult = 1 + extraChains * model.breadth_per_chain;
+  const group = categoryGroup(protocol.category);
+  const categoryMult = categoryMultiplier(group, model);
+  const stale =
+    age !== null && age > model.stale_age_days && growthPct < model.stale_growth_pct;
+  const staleMult = stale ? model.stale_multiplier : 1;
   const base = protocol.tvl_usd * model.base_multiple;
-  const implied = Math.max(1, Math.round(base * growthMult * maturityMult * breadthMult));
-  return { implied, base: Math.round(base), growthPct, growthMult, maturityMult, breadthMult, age };
+  const implied = Math.max(
+    1,
+    Math.round(base * growthMult * maturityMult * breadthMult * categoryMult * staleMult),
+  );
+  return { implied, base: Math.round(base), growthPct, growthMult, maturityMult, breadthMult, categoryMult, categoryGroup: group, staleMult, age };
 }
 
 /** A name ending in a release marker is a pool of another protocol, not its own launch. */
@@ -260,6 +376,9 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
       growth_multiplier: round4(s.v.growthMult),
       maturity_multiplier: round4(s.v.maturityMult),
       breadth_multiplier: round4(s.v.breadthMult),
+      category_multiplier: round4(s.v.categoryMult),
+      category_group: s.v.categoryGroup,
+      stale_multiplier: round4(s.v.staleMult),
       age_days: s.v.age,
     },
     farm_steps: farmSteps(s.p, s.v.age).map(stepText),

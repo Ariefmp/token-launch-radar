@@ -6,6 +6,21 @@
 
 Token Radar ranks every pre-token protocol in a sealed DefiLlama snapshot by the implied value of its future token launch, and shows a concrete farm plan for each one.
 
+## Model radar-3
+
+```
+implied value = TVL × 0.30 × growth × maturity × breadth × category
+```
+
+- **Base:** TVL × 0.30, the launch multiple applied to the value already locked in.
+- **Growth:** 7-day TVL change clamped to −80%…+200%, raised to the power 0.8 — gentle near zero, sharp at the extremes.
+- **Maturity:** 0.4 + 0.6 × √(min(age, 1460 days) / 1460) — the first year with no token is the strongest signal; later years add less.
+- **Breadth:** 1 + 0.04 per extra chain, up to 6 extra.
+- **Category:** ×1.12 for token-native models (lending, exchanges, derivatives, yield, RWA and the like), ×0.88 for models that rarely carry a token (chains, stablecoin issuers, token lockers, BTC wrappers), ×1.00 for the rest.
+- **Stale:** a further ×0.90 when a protocol is over two years old and still shrinking more than 10% in 7 days.
+
+No protocol name is ever special-cased. A protocol is said to *record no token*, never that it has none.
+
 ## Run it
 
 ```sh

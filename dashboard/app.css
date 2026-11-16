@@ -141,6 +141,15 @@ td .sub { display: block; color: var(--muted); font-size: 12px; }
 ol.steps { margin: 0; padding-left: 22px; }
 ol.steps li { margin-bottom: 10px; }
 ol.steps .cost { color: var(--muted); font-size: 13px; display: block; }
+.dist-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 14px; }
+.dist-label { width: 110px; color: var(--muted); text-align: right; flex-shrink: 0; }
+.dist-bar { flex: 1; height: 18px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+.dist-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--teal), var(--gold)); }
+.dist-count { width: 34px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+.flags { margin: 0 0 12px; padding-left: 20px; color: #f3c969; }
+.flags li { margin-bottom: 4px; }
+.peers { margin: 0 0 12px; padding-left: 20px; }
+.peers li { margin-bottom: 4px; }
 footer { max-width: 1080px; margin: 0 auto; padding: 0 20px 30px; color: var(--muted); font-size: 13px; }
 footer p { margin: 0; }
 a { color: var(--gold); }
