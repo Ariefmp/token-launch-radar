@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Radar: pre-token protocols ranked by implied value</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<a class="skip" href="#board">Skip to the board</a>
+<header class="hero">
+  <div class="hero-in">
+    <p class="kicker">Token launch radar &middot; model radar-2</p>
+    <h1>Token Radar</h1>
+    <p class="lede">Every protocol DefiLlama tracks that still records no token, ranked by what
+    its launch would be worth if its record stayed as it is &mdash; and what to do to farm it.</p>
+    <dl class="stats" id="stats"></dl>
+    <p class="asof" id="asof"></p>
+  </div>
+</header>
+<main>
+  <section class="card model" aria-labelledby="model-h">
+    <h2 id="model-h">How the implied value is worked out</h2>
+    <p class="formula">implied value = TVL &times; 0.30 &times; growth &times; maturity &times; breadth</p>
+    <ul class="model-list" id="model-list"></ul>
+    <p class="note">Implied value is this entry&rsquo;s own claim from the snapshot&rsquo;s figures. It is
+    not a prediction that a token will launch, or when. A protocol is said to <em>record no
+    token</em>, never that it has none: DefiLlama&rsquo;s record is not proof, and a protocol on
+    the list may still carry a token its record does not name.</p>
+  </section>
+
+  <nav class="tabs" aria-label="Views">
+    <button id="tab-board" class="tab active" type="button">Board</button>
+    <button id="tab-live" class="tab" type="button">Live tokens</button>
+  </nav>
+
+  <section class="card" id="board-panel" aria-labelledby="board-h">
+    <h2 id="board-h">The board</h2>
+    <div class="controls">
+      <label>Search <input id="q" type="search" placeholder="Name, slug or category" autocomplete="off"></label>
+      <label>Category <select id="cat"><option value="">All categories</option></select></label>
+      <label>Chain <select id="chain"><option value="">All chains</option></select></label>
+      <label class="check"><input id="watch" type="checkbox"> Watchlist only</label>
+    </div>
+    <p class="count" id="count" aria-live="polite"></p>
+    <div class="table-wrap">
+      <table id="board">
+        <thead>
+          <tr>
+            <th data-sort="rank" aria-sort="ascending">Rank</th>
+            <th data-sort="name">Protocol</th>
+            <th data-sort="category">Category</th>
+            <th data-sort="chains">Chains</th>
+            <th data-sort="tvl_usd" class="num">TVL</th>
+            <th data-sort="change_7d" class="num">7d</th>
+            <th data-sort="age_days" class="num">Age</th>
+            <th data-sort="implied_value_usd" class="num">Implied value</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p class="hint">Click a row to open its detail view and farm plan. Click a column heading to sort.</p>
+  </section>
+
+  <section class="card detail" id="detail" hidden aria-labelledby="detail-h">
+    <h2 id="detail-h">Protocol detail</h2>
+    <div id="detail-body"></div>
+    <p><a href="#board" id="back">Back to the board</a></p>
+  </section>
+
+  <section class="card" id="live-panel" hidden aria-labelledby="live-h">
+    <h2 id="live-h">Live tokens &mdash; already trading</h2>
+    <p>These protocols already have a token that trades, so the board shows the market&rsquo;s
+    own value for them instead of a model&rsquo;s. They are listed here so the radar&rsquo;s
+    pre-token board is never mixed up with them.</p>
+    <div class="table-wrap">
+      <table id="live">
+        <thead>
+          <tr>
+            <th>Protocol</th>
+            <th>Category</th>
+            <th>Chains</th>
+            <th class="num">TVL</th>
+            <th class="num">Market cap</th>
+            <th class="num">7d</th>
+          </tr>
+        </thead>
+        <tbody id="live-rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<footer>
+  <p>Data: a sealed DefiLlama snapshot of every protocol at or above $5,000,000 of TVL,
+  fetched once and frozen. The watchlist is the snapshot&rsquo;s own rule: TVL at or above
+  $50,000,000, no token recorded, and not a wrapped, staked or bridged product of a
+  token that already trades. The board applies the same rule to every protocol it ranks,
+  the watchlist floor and the early finds below it.</p>
+</footer>
+<script src="../data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
