@@ -1,4 +1,4 @@
-// Token Radar model (radar-3): one sealed snapshot in, one ranked board out.
+// Token Radar model (radar-4): one sealed snapshot in, one ranked board out.
 //
 // The board ranks every pre-token protocol the snapshot can rank: the whole
 // watchlist (the floor, never the ceiling) plus every other pre-token protocol
@@ -23,11 +23,24 @@
 //               derivatives, yield, RWA, prediction markets and the like),
 //               0.88 for models that rarely carry a token (chains, stablecoin
 //               issuers, token lockers, BTC wrappers and the like), 1.00 else
+//   dominance x = 1.10 for the largest pre-token protocol in its category by
+//               TVL when the category holds three or more ranked protocols,
+//               1.05 for 2nd and 3rd, 1.00 otherwise; the leader of a
+//               two-protocol category takes 1.05 and a lone protocol 1.00 —
+//               leadership means beating peers, and with no peers there is no
+//               signal. The category leader is the category's most likely next
+//               launch, and the snapshot carries the ranking that says so; no
+//               name is ever special-cased, only the TVL order inside each
+//               category
+//   data quality x = 0.95 when the 7-day change is missing, 0.95 when the
+//               listing date is missing (0.9025 when both are) — a protocol
+//               the snapshot cannot measure is worth less than one it can,
+//               because the growth and maturity above are guesses for it
 //   stale x   = 0.90 when the protocol is over two years old AND still
 //               shrinking more than 10% in 7 days — an old protocol bleeding
 //               TVL has likely missed its launch window; 1.00 otherwise
 //   implied   = max(1, round(base x growth x maturity x breadth x category
-//               x stale))
+//               x dominance x data quality x stale))
 //
 // No protocol name is ever special-cased: the same function scores every row.
 // A protocol is said to record no token, never that it has none: DefiLlama's
@@ -71,6 +84,10 @@ export interface ModelConstants {
   breadth_max_chains: number;
   category_native: number;
   category_unlikely: number;
+  dominance_first: number;
+  dominance_top3: number;
+  data_quality_unknown_growth: number;
+  data_quality_unknown_age: number;
   stale_age_days: number;
   stale_growth_pct: number;
   stale_multiplier: number;
@@ -89,13 +106,17 @@ export const MODEL: ModelConstants = {
   breadth_max_chains: 6,
   category_native: 1.12,
   category_unlikely: 0.88,
+  dominance_first: 1.1,
+  dominance_top3: 1.05,
+  data_quality_unknown_growth: 0.95,
+  data_quality_unknown_age: 0.95,
   stale_age_days: 730,
   stale_growth_pct: -10,
   stale_multiplier: 0.9,
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-3';
+export const MODEL_VERSION = 'radar-4';
 
 /** How many live-token protocols the Live tab carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -131,6 +152,10 @@ export interface BoardRow {
     breadth_multiplier: number;
     category_multiplier: number;
     category_group: 'native' | 'neutral' | 'unlikely';
+    dominance_multiplier: number;
+    dominance_rank: number;
+    category_size: number;
+    data_quality_multiplier: number;
     stale_multiplier: number;
     age_days: number | null;
   };
@@ -263,11 +288,12 @@ function categoryMultiplier(group: 'native' | 'neutral' | 'unlikely', model: Mod
   return 1;
 }
 
-/** The six multipliers and the implied value one protocol gets. */
+/** The eight multipliers and the implied value one protocol gets. */
 export function impliedValue(
   protocol: SnapshotProtocol,
   asOf: string,
   model: ModelConstants,
+  dominance: { rank: number; size: number } = { rank: 0, size: 0 },
 ): {
   implied: number;
   base: number;
@@ -277,6 +303,10 @@ export function impliedValue(
   breadthMult: number;
   categoryMult: number;
   categoryGroup: 'native' | 'neutral' | 'unlikely';
+  dominanceMult: number;
+  dominanceRank: number;
+  categorySize: number;
+  dataQualityMult: number;
   staleMult: number;
   age: number | null;
 } {
@@ -293,15 +323,53 @@ export function impliedValue(
   const breadthMult = 1 + extraChains * model.breadth_per_chain;
   const group = categoryGroup(protocol.category);
   const categoryMult = categoryMultiplier(group, model);
+  const dominanceMult =
+    dominance.size >= 3
+      ? dominance.rank === 1
+        ? model.dominance_first
+        : dominance.rank >= 2 && dominance.rank <= 3
+          ? model.dominance_top3
+          : 1
+      : dominance.size === 2 && dominance.rank === 1
+        ? model.dominance_top3
+        : 1;
+  const growthKnown = protocol.change_7d !== null && Number.isFinite(protocol.change_7d);
+  const dataQualityMult =
+    (growthKnown ? 1 : model.data_quality_unknown_growth) *
+    (age !== null ? 1 : model.data_quality_unknown_age);
   const stale =
     age !== null && age > model.stale_age_days && growthPct < model.stale_growth_pct;
   const staleMult = stale ? model.stale_multiplier : 1;
   const base = protocol.tvl_usd * model.base_multiple;
   const implied = Math.max(
     1,
-    Math.round(base * growthMult * maturityMult * breadthMult * categoryMult * staleMult),
+    Math.round(
+      base *
+        growthMult *
+        maturityMult *
+        breadthMult *
+        categoryMult *
+        dominanceMult *
+        dataQualityMult *
+        staleMult,
+    ),
   );
-  return { implied, base: Math.round(base), growthPct, growthMult, maturityMult, breadthMult, categoryMult, categoryGroup: group, staleMult, age };
+  return {
+    implied,
+    base: Math.round(base),
+    growthPct,
+    growthMult,
+    maturityMult,
+    breadthMult,
+    categoryMult,
+    categoryGroup: group,
+    dominanceMult,
+    dominanceRank: dominance.rank,
+    categorySize: dominance.size,
+    dataQualityMult,
+    staleMult,
+    age,
+  };
 }
 
 /** A name ending in a release marker is a pool of another protocol, not its own launch. */
@@ -348,8 +416,23 @@ export function isRankable(p: SnapshotProtocol): boolean {
 /** The protocols the board ranks, strongest first, with ranks 1..n. */
 export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): BoardRow[] {
   const chosen = snapshot.protocols.filter(isRankable);
+  // Category standing: within each category, the rankable protocols ordered by
+  // TVL. The leader is the category's most likely next launch; the ranking
+  // comes from the snapshot's own figures, never from a list of names.
+  const byCategory = new Map<string, SnapshotProtocol[]>();
+  for (const p of chosen) {
+    const key = p.category ?? 'No category';
+    const list = byCategory.get(key);
+    if (list === undefined) byCategory.set(key, [p]);
+    else list.push(p);
+  }
+  const dominance = new Map<string, { rank: number; size: number }>();
+  for (const list of byCategory.values()) {
+    const ordered = [...list].sort((a, b) => b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : 1));
+    ordered.forEach((p, i) => dominance.set(p.slug, { rank: i + 1, size: ordered.length }));
+  }
   const scored = chosen.map((p) => {
-    const v = impliedValue(p, snapshot.as_of, model);
+    const v = impliedValue(p, snapshot.as_of, model, dominance.get(p.slug) ?? { rank: 0, size: 0 });
     return { p, v };
   });
   scored.sort(
@@ -378,6 +461,10 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
       breadth_multiplier: round4(s.v.breadthMult),
       category_multiplier: round4(s.v.categoryMult),
       category_group: s.v.categoryGroup,
+      dominance_multiplier: round4(s.v.dominanceMult),
+      dominance_rank: s.v.dominanceRank,
+      category_size: s.v.categorySize,
+      data_quality_multiplier: round4(s.v.dataQualityMult),
       stale_multiplier: round4(s.v.staleMult),
       age_days: s.v.age,
     },
@@ -446,29 +533,97 @@ function actionFor(p: SnapshotProtocol, capital: number, chain: string): string 
   return `Deposit $${capital} of USDC into ${name} on ${chain} and keep the position open.`;
 }
 
+/** Chains where one transaction costs about a dollar or less. */
+const CHEAP_CHAINS = new Set([
+  'ApeChain',
+  'Abstract',
+  'Arbitrum',
+  'Base',
+  'Blast',
+  'Boba',
+  'Codex',
+  'Corn',
+  'Fluent',
+  'Fraxtal',
+  'Hemi',
+  'Ink',
+  'Katana',
+  'Kroma',
+  'Linea',
+  'Lisk',
+  'Mantle',
+  'MegaETH',
+  'Metis',
+  'Mint',
+  'Mode',
+  'Morph',
+  'Op_Bnb',
+  'Optimism',
+  'Plume Mainnet',
+  'Polygon',
+  'Polygon zkEVM',
+  'RISE',
+  'Scroll',
+  'Soneium',
+  'Sophon',
+  'Stable',
+  'Swellchain',
+  'Taiko',
+  'Tempo',
+  'Unichain',
+  'World Chain',
+  'X Layer',
+  'Zircuit',
+  'Zora',
+  'zkSync Era',
+]);
+
+/**
+ * What one transaction on a chain costs, in dollars: gas differs by orders of
+ * magnitude between chains, so a farm plan that prices every chain the same
+ * misleads the reader. Figures are planning estimates for a simple action on
+ * the protocol's first chain.
+ */
+export function gasPerTx(chain: string): number {
+  if (chain === 'Ethereum') return 15;
+  if (chain === 'Solana') return 0.05;
+  if (chain === 'Binance') return 0.3;
+  if (CHEAP_CHAINS.has(chain)) return 1;
+  return 3;
+}
+
+/** A gas figure as the farm plan writes it: $15, $3, $1, $0.30, $0.05. */
+function gasText(gas: number): string {
+  if (gas >= 1) return `$${gas}`;
+  return `$${gas.toFixed(2)}`;
+}
+
 /**
  * A protocol's farm plan: six steps, each an action with a cost and a time.
  * The plan is derived from the protocol's own record (category, chains, TVL,
- * age), never from a hand-written list of names.
+ * age), never from a hand-written list of names. Gas is priced for the
+ * protocol's own first chain, because a transaction on Ethereum costs far
+ * more than one on a cheap L2 or on Solana.
  */
 export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
   const chain = chainOf(p);
   const capital = capitalFor(p);
   const hold = holdDaysFor(age);
+  const gas = gasPerTx(chain);
   return [
     {
       text: `Open a fresh wallet that holds only the funds you plan to farm, and store its seed phrase offline where nobody else can read it.`,
-      cost: 'under $3 of gas for the first transaction',
+      cost: `about ${gasText(gas)} of gas for the first transaction`,
       time: '5 minutes',
     },
     {
       text: actionFor(p, capital, chain),
-      cost: `$${capital} of capital and about $${capital >= 200 ? 8 : 4} of gas`,
+      cost: `$${capital} of capital and about ${gasText(gas)} of gas`,
       time: '15 minutes to set up',
     },
     {
       text: `Do one qualifying action every week, a deposit, a borrow, a swap or a vote, so the wallet shows steady use instead of one burst.`,
-      cost: 'about $2 of gas a week',
+      cost: `about ${gasText(gas)} of gas a week`,
       time: '10 minutes a week',
     },
     {

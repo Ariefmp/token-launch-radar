@@ -6,10 +6,10 @@
 
 Token Radar ranks every pre-token protocol in a sealed DefiLlama snapshot by the implied value of its future token launch, and shows a concrete farm plan for each one.
 
-## Model radar-3
+## Model radar-4
 
 ```
-implied value = TVL × 0.30 × growth × maturity × breadth × category
+implied value = TVL × 0.30 × growth × maturity × breadth × category × dominance × data quality
 ```
 
 - **Base:** TVL × 0.30, the launch multiple applied to the value already locked in.
@@ -17,7 +17,10 @@ implied value = TVL × 0.30 × growth × maturity × breadth × category
 - **Maturity:** 0.4 + 0.6 × √(min(age, 1460 days) / 1460) — the first year with no token is the strongest signal; later years add less.
 - **Breadth:** 1 + 0.04 per extra chain, up to 6 extra.
 - **Category:** ×1.12 for token-native models (lending, exchanges, derivatives, yield, RWA and the like), ×0.88 for models that rarely carry a token (chains, stablecoin issuers, token lockers, BTC wrappers), ×1.00 for the rest.
+- **Dominance:** ×1.10 for the largest pre-token protocol in its category by TVL (in a category of three or more ranked protocols), ×1.05 for 2nd and 3rd, ×1.00 otherwise; the leader of a two-protocol category takes ×1.05 and a lone protocol ×1.00 — leadership means beating peers, and with no peers there is no signal.
+- **Data quality:** ×0.95 when the 7-day change is missing, ×0.95 when the listing date is missing — a protocol the snapshot cannot measure is worth less than one it can, because its growth and maturity are guesses.
 - **Stale:** a further ×0.90 when a protocol is over two years old and still shrinking more than 10% in 7 days.
+- **Farm plans:** every step's gas is priced for the protocol's own first chain — a transaction on Ethereum costs far more than one on a cheap L2 or on Solana — instead of one flat figure for every chain.
 
 No protocol name is ever special-cased. A protocol is said to *record no token*, never that it has none.
 

@@ -1,7 +1,7 @@
 // Token Radar dashboard: board, detail view and filter, no network.
 // Reads window.RADAR (written by main.ts from the same board), renders the
 // table, and opens a detail view per protocol. Deep links: #detail=<slug>,
-// #q=<text>, #tab=live, #watchlist=1.
+// #q=<text>, #cat=<name>, #tab=live, #watchlist=1, #growing=1.
 
 (function () {
   'use strict';
@@ -21,6 +21,7 @@
     cat: '',
     chain: '',
     watch: false,
+    growing: false,
     sortKey: 'rank',
     sortDir: 1,
     selected: null,
@@ -75,7 +76,9 @@
     '<li><b>Maturity:</b> ' + m.maturity_floor + ' + ' + m.maturity_range + ' &times; the square root of min(age, ' + m.maturity_days + ' days) / ' + m.maturity_days + ' &mdash; the first year with no token is the strongest signal; later years add less, up to ' + (m.maturity_floor + m.maturity_range).toFixed(2) + '&times;.</li>' +
     '<li><b>Breadth:</b> 1 + ' + m.breadth_per_chain + ' per extra chain, up to ' + m.breadth_max_chains + ' extra &mdash; a protocol live on more chains has more surface to launch from.</li>' +
     '<li><b>Category:</b> &times;' + m.category_native + ' for token-native models (lending, exchanges, derivatives, yield, RWA and the like), &times;' + m.category_unlikely + ' for models that rarely carry a token (chains, stablecoin issuers, token lockers, BTC wrappers), &times;1.00 for the rest.</li>' +
-    '<li><b>Unknown age</b> counts as ' + m.unknown_age_days + ' days; unknown 7-day change counts as 0%.</li>';
+    '<li><b>Dominance:</b> &times;' + m.dominance_first + ' for the largest pre-token protocol in its category by TVL (in a category of three or more), &times;' + m.dominance_top3 + ' for 2nd and 3rd, &times;1.00 for the rest &mdash; the category leader is the category&rsquo;s most likely next launch; a leader of two takes &times;' + m.dominance_top3 + ' and a lone protocol &times;1.00, because leadership means beating peers.</li>' +
+    '<li><b>Data quality:</b> &times;' + m.data_quality_unknown_growth + ' when the 7-day change is missing, &times;' + m.data_quality_unknown_age + ' when the listing date is missing &mdash; what the snapshot cannot measure is worth less than what it can.</li>' +
+    '<li><b>Unknown age</b> counts as ' + m.unknown_age_days + ' days and takes the data-quality discount; unknown 7-day change counts as 0% and takes it too.</li>';
 
   // ---- filters ----
   var cats = {};
@@ -101,6 +104,7 @@
     var q = state.q.trim().toLowerCase();
     return R.rows.filter(function (r) {
       if (state.watch && !watchSet[r.slug]) return false;
+      if (state.growing && !(r.change_7d !== null && r.change_7d > 0)) return false;
       if (state.cat && r.category !== state.cat) return false;
       if (state.chain && (r.chains || []).indexOf(state.chain) < 0) return false;
       if (q) {
@@ -245,6 +249,9 @@
     if (r.age_days === null) {
       flags.push('Age unknown — the snapshot carries no listing date, so maturity is estimated at ' + R.model.unknown_age_days + ' days.');
     }
+    if (r.model.data_quality_multiplier < 1) {
+      flags.push('The snapshot is missing a figure for this protocol, so the model discounts it for the gap.');
+    }
     if ((r.chains || []).length <= 1) {
       flags.push('Live on a single chain — a launch has only one chain to land on.');
     }
@@ -299,6 +306,10 @@
       '<tr><td>Maturity: ' + (md.age_days === null ? 'unknown age' : md.age_days + ' days old') + '</td><td>&times;' + md.maturity_multiplier + '</td></tr>' +
       '<tr><td>Breadth: ' + (r.chains || []).length + ' chain' + ((r.chains || []).length === 1 ? '' : 's') + '</td><td>&times;' + md.breadth_multiplier + '</td></tr>' +
       '<tr><td>Category: ' + esc(r.category || 'no category') + ' (' + md.category_group + ')</td><td>&times;' + md.category_multiplier + '</td></tr>' +
+      '<tr><td>Dominance: #' + md.dominance_rank + ' of ' + md.category_size + ' in ' + esc(r.category || 'this category') + ' by TVL</td><td>&times;' + md.dominance_multiplier + '</td></tr>' +
+      (md.data_quality_multiplier < 1
+        ? '<tr><td>Data quality: ' + (r.change_7d === null ? '7-day change missing' : '') + (r.change_7d === null && r.age_days === null ? ' and ' : '') + (r.age_days === null ? 'listing date missing' : '') + '</td><td>&times;' + md.data_quality_multiplier + '</td></tr>'
+        : '') +
       staleRow +
       '<tr class="total"><td>Implied value</td><td>' + money(r.implied_value_usd) + '</td></tr>' +
       '</tbody></table>' +
@@ -336,6 +347,7 @@
   $('cat').addEventListener('change', function (e) { state.cat = e.target.value; renderBoard(); });
   $('chain').addEventListener('change', function (e) { state.chain = e.target.value; renderBoard(); });
   $('watch').addEventListener('change', function (e) { state.watch = e.target.checked; renderBoard(); });
+  $('growing').addEventListener('change', function (e) { state.growing = e.target.checked; renderBoard(); });
   document.querySelectorAll('#board th[data-sort]').forEach(function (th) {
     th.addEventListener('click', function () {
       var k = th.getAttribute('data-sort');
@@ -379,6 +391,8 @@
       var v = kv[1] ? decodeURIComponent(kv[1]) : '';
       if (k === 'detail' && v) renderDetail(v);
       if (k === 'q' && v) { state.q = v; $('q').value = v; }
+      if (k === 'cat' && v) { state.cat = v; $('cat').value = v; }
+      if (k === 'growing' && v === '1') { state.growing = true; $('growing').checked = true; }
       if (k === 'tab' && (v === 'live' || v === 'board')) setTab(v);
       if (k === 'watchlist' && v === '1') { state.watch = true; $('watch').checked = true; }
     });

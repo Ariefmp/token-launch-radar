@@ -10,7 +10,7 @@
 <a class="skip" href="#board">Skip to the board</a>
 <header class="hero">
   <div class="hero-in">
-    <p class="kicker">Token launch radar &middot; model radar-3</p>
+    <p class="kicker">Token launch radar &middot; model radar-4</p>
     <h1>Token Radar</h1>
     <p class="lede">Every protocol DefiLlama tracks that still records no token, ranked by what
     its launch would be worth if its record stayed as it is &mdash; and what to do to farm it.</p>
@@ -21,9 +21,15 @@
 <main>
   <section class="card model" aria-labelledby="model-h">
     <h2 id="model-h">How the implied value is worked out</h2>
-    <p class="formula">implied value = TVL &times; 0.30 &times; growth &times; maturity &times; breadth &times; category</p>
+    <p class="formula">implied value = TVL &times; 0.30 &times; growth &times; maturity &times; breadth &times; category &times; dominance &times; data quality</p>
     <ul class="model-list" id="model-list"></ul>
-    <p class="note">A protocol over two years old and still shrinking more than 10% in 7 days
+    <p class="note">The category leader &mdash; the largest pre-token protocol in its category
+    by TVL, in a category of three or more &mdash; takes a further &times;1.10, 2nd and 3rd take &times;1.05: the leader is the
+    category&rsquo;s most likely next launch, and the snapshot itself carries the ranking
+    that says so. A leader of a two-protocol category takes &times;1.05 and a lone protocol
+    &times;1.00: leadership means beating peers, and with no peers there is no signal. A protocol whose 7-day change or listing date the snapshot does not
+    carry takes &times;0.95 for each missing figure: what the snapshot cannot measure is
+    worth less than what it can. A protocol over two years old and still shrinking more than 10% in 7 days
     takes a further &times;0.90 &mdash; an old protocol bleeding TVL has likely missed its
     launch window. Implied value is this entry&rsquo;s own claim from the snapshot&rsquo;s figures. It is
     not a prediction that a token will launch, or when. A protocol is said to <em>record no
@@ -71,6 +77,7 @@
       <label>Category <select id="cat"><option value="">All categories</option></select></label>
       <label>Chain <select id="chain"><option value="">All chains</option></select></label>
       <label class="check"><input id="watch" type="checkbox"> Watchlist only</label>
+      <label class="check"><input id="growing" type="checkbox"> Growing only (7d &gt; 0)</label>
     </div>
     <p class="count" id="count" aria-live="polite"></p>
     <div class="table-wrap">
