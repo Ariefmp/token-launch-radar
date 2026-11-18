@@ -6,6 +6,10 @@
 
 Token Radar ranks every pre-token protocol in a sealed DefiLlama snapshot by the implied value of its future token launch, and shows a concrete farm plan for each one.
 
+## Get it on Agensi
+
+**Pre-Token Launch Radar** is now live on [Agensi](https://www.agensi.io/skills/pre-token-launch-radar) — **$5 one-time**. The packaged skill for AI agents: rank pre-token DeFi protocols by implied launch value and get a 7-step farm plan for any protocol you pick.
+
 ## Model radar-4
 
 ```
